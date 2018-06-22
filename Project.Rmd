@@ -1,0 +1,111 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "pisarev.ik"
+date: "2018 M06 21"
+output: html_document
+---
+
+We have data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They performed barbell lifts correctly and incorrectly in 5 different ways. Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistake. The training dataset is taken from here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv  
+Our goal is to create model and predict class of test exercises.
+
+## 1. Getting and cleaning data
+
+``` {r lib , echo=FALSE, include=FALSE}
+  library(plotly)
+  library(caret)
+  strURLTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+  strURLTest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+  dfPMLTraining <- read.csv(url(strURLTrain))
+  dfPMLTesting <- read.csv(url(strURLTest))
+```
+There are many variables in training dataset, it is difficult to create model:
+``` {r dim}
+  dim(dfPMLTraining)
+```
+Let's find and remove some not usable variables.  
+We can see that participants performed the exercises sequentially, one after another. All participants performed exercises of all classes (A, B, C, D, E). Variable X is just an order number of rows.
+``` {r plot1, echo=FALSE}
+  plot_ly(x = dfPMLTraining$cvtd_timestamp,
+          y = dfPMLTraining$classe,
+          color = dfPMLTraining$user_name,
+          symbol = dfPMLTraining$new_window,
+          type = "scatter",
+          mode = "markers")%>%
+  layout(title = "Class of participants ecercises",
+         xaxis = list(title = "Timestamp"),
+         yaxis = list(title = "Class"),
+         margin = list(b = 150))
+```
+So, this 7 variables are unusable for creating model and we can remove them:
+``` {r clean1}
+dfPMLTrainingEx <- subset(dfPMLTraining,
+  select = c(-X, -user_name,
+             -raw_timestamp_part_1,
+             -raw_timestamp_part_2,
+             -cvtd_timestamp,
+             -new_window,-num_window))
+```
+There are variables in dataset, that have mostly NA or blank (equal to "") values.
+``` {r clean2}
+  vNotEmptyColumns <- sapply(dfPMLTrainingEx,
+                             function (x) {
+                               (sum(is.na(x) | x == "")) < 0.9*nrow(dfPMLTrainingEx)
+                               })
+  table(vNotEmptyColumns)
+```
+We can remove this 100 variables too.
+``` {r clean3}
+  dfPMLTrainingEx <- dfPMLTrainingEx[,vNotEmptyColumns]
+  dim(dfPMLTrainingEx)
+```
+Now we have 53 variables to create the model instead of 160 in original dataset.
+
+## 2. Create and compare models
+Let's split dataset (75% for training and 25% for validation), create several models on training partition and test them on validation partition.
+``` {r train, results = 'hide', warning=FALSE}
+  inTraining <- createDataPartition(y = dfPMLTrainingEx$classe,p = .75,list = F)
+  dfPMLTrainingExTr <- dfPMLTrainingEx[inTraining,]
+  dfPMLTrainingExTst <- dfPMLTrainingEx[-inTraining,]
+  rm(dfPMLTraining, dfPMLTrainingEx)
+  gc()
+  fitRF <- train(classe ~ ., method = "rf", data = dfPMLTrainingExTr)
+  predRF <- predict(fitRF, dfPMLTrainingExTst)
+  confMatrRF <- confusionMatrix(predRF, dfPMLTrainingExTst$classe)
+  strLabelRF <- fitRF$modelInfo$label
+  strAccRF <- confMatrRF$overall[1]
+  rm(predRF, confMatrRF)
+  gc()
+  fitTR <- train(classe ~ ., method = "rpart", data = dfPMLTrainingExTr)
+  predTR <- predict(fitTR, dfPMLTrainingExTst)
+  confMatrTR <- confusionMatrix(predTR, dfPMLTrainingExTst$classe)
+  strLabelTR <- fitTR$modelInfo$label
+  strAccTR <- confMatrTR$overall[1]
+  rm(fitTR, predTR, confMatrTR)
+  gc()
+  fitBS <- train(classe ~ ., method = "gbm", data = dfPMLTrainingExTr, verbose = FALSE)
+  predBS <- predict(fitBS, dfPMLTrainingExTst)
+  confMatrBS <- confusionMatrix(predBS, dfPMLTrainingExTst$classe)
+  strLabelBS <- fitBS$modelInfo$label
+  strAccBS <- confMatrBS$overall[1]
+  rm(fitBS, predBS, confMatrBS)
+  gc()
+  fitLDA <- train(classe ~ ., method = "lda", data = dfPMLTrainingExTr)
+  predLDA <- predict(fitLDA, dfPMLTrainingExTst)
+  confMatrLDA <- confusionMatrix(predLDA, dfPMLTrainingExTst$classe)
+  strLabelLDA <- fitLDA$modelInfo$label
+  strAccLDA <- confMatrLDA$overall[1]
+  rm(fitLDA, predLDA, confMatrLDA)
+  gc()
+```
+Now comapre Accuracy of predictions.
+``` {r results, eval = TRUE, echo = FALSE}
+  vLabels <- c(strLabelRF,strLabelTR,strLabelBS,strLabelLDA)
+  vResults <- c(strAccRF,strAccTR,strAccBS,strAccLDA)
+  data.frame(MethodName = vLabels, Accuracy = vResults)
+```
+The best result give a Random Forest method.  
+Now we can predict class of 20 test measurements.
+``` {r final}
+  predRFfinal <- predict(fitRF, dfPMLTesting)
+  predRFfinal
+```
